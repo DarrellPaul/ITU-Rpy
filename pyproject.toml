@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "itur"
+version = "0.1.0"
+description = "A python implementation of the ITU-R P. Recommendations"
+readme = "README.md"
+requires-python = ">=3.7"
+dependencies = [
+    "numpy>=1.14.0",
+    "pandas>=0.24.2",
+    "scipy>=0.18.1",
+    "astropy",
+    "pyproj"
+]
+authors = [
+    { name = "Inigo del Portillo", email = "inigo.del.portillo@gmail.com" }
+]
+license = "MIT"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Telecommunications Industry",
+    "Topic :: Scientific/Engineering :: Physics",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+keywords = "atmospheric-propagation attenuation communications"
+packages = ["itur"]
+package-data = { "itur" = ["LICENSE.txt", "README.md", "data/453/*.npz", "data/530/*.npz", "data/676/*.txt", "data/836/*.npz", "data/837/*.npz", "data/839/*.npz", "data/840/*.npz", "data/1510/*.npz", "data/1511/*.npz"] } 

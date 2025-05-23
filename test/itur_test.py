@@ -984,7 +984,7 @@ class TestFunctionsRecommendation1510(test.TestCase):
 
 class TestFunctionsRecommendation1511(test.TestCase):
     def setUp(self):
-        self.versions = [0, 1, 2]
+        self.versions = [0, 1, 2, 3]
 
     @staticmethod
     def test_all_functions_1511():
