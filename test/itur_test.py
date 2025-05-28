@@ -740,7 +740,7 @@ class TestFunctionsRecommendation676(test.TestCase):
 
 class TestFunctionsRecommendation835(test.TestCase):
     def setUp(self):
-        self.versions = [5, 6]
+        self.versions = [5, 6, 7]
 
     @staticmethod
     def test_all_functions_835():

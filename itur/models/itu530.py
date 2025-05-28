@@ -42,7 +42,9 @@ class __ITU530__():
     # ITU-R P.530 recommendation.
 
     def __init__(self, version=17):
-        if version == 17:
+        if version == 18:
+            self.instance = _ITU530_18_()
+        elif version == 17:
             self.instance = _ITU530_17_()
         elif version == 16:
             self.instance = _ITU530_16()
@@ -90,6 +92,20 @@ class __ITU530__():
         return self.instance.XPD_outage_precipitation(lat, lon, d, f, el, C0_I,
                                                       tau, U0, XPIF)
 
+
+class _ITU530_18_():
+    _s_a = {}
+
+    def __init__(self):
+        self.__version__ = 18
+        self.year = 2021
+        self.month = 9
+        self.link = 'https://www.itu.int/rec/R-REC-P.530-18-202109-I/en'
+
+    
+    @classmethod
+    def s_a(self, lat, lon):
+        pass
 
 class _ITU530_17_():
 

@@ -33,8 +33,10 @@ class __ITU835__():
     # This is an abstract class that contains an instance to a version of the
     # ITU-R P.835 recommendation.
 
-    def __init__(self, version=6):
-        if version == 6:
+    def __init__(self, version=7):
+        if version == 7:
+            self.instance = _ITU835_7()
+        elif version == 6:
             self.instance = _ITU835_6()
         elif version == 5:
             self.instance = _ITU835_5()
@@ -70,6 +72,322 @@ class __ITU835__():
 
     def standard_water_vapour_pressure(self, h, h_0=2, rho_0=7.5):
         return self.instance.standard_water_vapour_pressure(h, h_0, rho_0)
+
+
+class _ITU835_7():
+    def __init__(self):
+        self.__version__ = 7
+        self.year = 2024
+        self.month = 8
+        self.link = 'https://www.itu.int/rec/R-REC-P.835-7-202408-I/en'
+
+    @staticmethod
+    def standard_temperature(h, T_0=288.15):
+        h_p = 6356.766 * h / (6356.766 + h)
+        # Warnings because of sqrt are expected
+        with np.errstate(invalid='ignore'):
+            T = np.where(h_p <= 11, 288.15 - 6.5 * h_p,
+                np.where(np.logical_and(11 < h_p, h_p <= 20),
+                         216.65,
+                np.where(np.logical_and(20 < h_p, h_p <= 32),
+                         216.65 + (h_p - 20),
+                np.where(np.logical_and(32 < h_p, h_p <= 47),
+                         228.65 + 2.8 * (h_p - 32),
+                np.where(np.logical_and(47 < h_p, h_p <= 51),
+                         270.65,
+                np.where(np.logical_and(51 < h_p, h_p <= 71),
+                         270.65 - 2.8 * (h_p - 51),
+                np.where(np.logical_and(71 < h_p, h_p <= 84.852),
+                         214.65 - 2.0 * (h_p - 71),
+                np.where(np.logical_and(86 <= h, h <= 91),
+                         186.8673,
+                np.where(np.logical_and(91 < h, h <= 100),
+                         263.1905 - 76.3232 * np.sqrt((1 - ((h - 91)/19.9429)**2)),
+                         195.08134)))))))))
+
+        return T
+    
+    @staticmethod
+    def standard_pressure(h, T_0=None, P_0=None):
+        """
+
+        """
+        h_p = 6356.766 * h / (6356.766 + h)
+        with np.errstate(invalid='ignore'):
+            P = np.where(h_p <= 11,
+                         1013.25 * (288.15 / (288.15 - 6.5 * h_p))**(-34.1632 / 6.5),
+                np.where(np.logical_and(11 < h_p, h_p <= 20),
+                         226.3226 * np.exp(-34.1632 * (h_p - 11) / 216.65),
+                np.where(np.logical_and(20 < h_p, h_p <= 32),
+                         54.74980 * (216.65 / (216.65 + (h_p - 20))) ** 34.1632,
+                np.where(np.logical_and(32 < h_p, h_p <= 47),
+                         8.680422 * (228.65 / (228.65 + 2.8 * (h_p - 32))) **
+                         (34.1632 / 2.8),
+                np.where(np.logical_and(47 < h_p, h_p <= 51),
+                         1.109106 * np.exp(-34.1632 * (h_p - 47) / 270.65),
+                np.where(np.logical_and(51 < h_p, h_p <= 71),
+                         0.6694167 * (270.65 / (270.65 - 2.8 * (h_p - 51)))**(-34.1632 / 2.8),
+                np.where(np.logical_and(71 < h_p, h_p <= 84.852),
+                         0.03956649 *(214.65 / (214.65 - 2.0 * (h_p - 71)))**(-34.1632 / 2.0),
+                np.where(np.logical_and(86 <= h, h <= 100),
+                         np.exp(95.571899 -4.011801 * h + 6.424731e-2 * h**2 -
+                                4.789660e-4 * h**3 + 1.340543e-6 * h**4),
+                         1e-62)))))))).astype(float)
+
+        return P
+
+    @staticmethod
+    def standard_water_vapour_density(h, h_0=2, rho_0=7.5):
+        """Calculate the standard water vapour density profile.
+
+        This method implements the standard water vapour density profile as defined in
+        ITU-R P.835-7. The profile follows an exponential decrease with height until
+        reaching a minimum mixing ratio threshold of 2e-6.
+
+        Args:
+            h: Height above sea level [km]
+            h_0: Reference height [km]. Defaults to 2.
+            rho_0: Reference water vapour density [g/m³]. Defaults to 7.5.
+
+        Returns:
+            numpy.ndarray: Water vapour density values [g/m³]
+        """
+        rho = []
+        for z in np.atleast_1d(h):
+            rho_val = 7.5 * np.exp(-z / 2)
+            e = rho_val * standard_temperature(h) / 216.7
+            mixing_ratio = e / standard_pressure(h)
+            if mixing_ratio > 2e-6:
+                rho.append(rho_val)
+            else:
+                rho_high = (2e-6) * standard_pressure(h) * 216.7 / standard_temperature(h)
+                rho.append(rho_high)
+        return np.array(rho)
+    
+    def standard_water_vapour_pressure(self, h, h_0=2, rho_0=7.5):
+        """
+
+        """
+        rho_h = self.standard_water_vapour_density(h, h_0, rho_0)
+        T_h = self.standard_temperature(h)
+        return rho_h * T_h / 216.7
+    
+    #  Low latitude standard atmosphere functions  (Section ITU-R P.835-6 2)  #
+    @staticmethod
+    def low_latitude_temperature(h):
+        """Section 2 of Recommendation ITU-R P.835-6."""
+        return np.where(np.logical_and((0 <= h), (h < 17)),
+                        300.4222 - 6.3533 * h + 0.005886 * h**2,
+               np.where(np.logical_and((17 <= h), (h < 47)),
+                        194 + (h - 17) * 2.533,
+               np.where(np.logical_and((47 <= h), (h < 52)), 270,
+               np.where(np.logical_and((52 <= h), (h < 80)),
+                        270 - (h - 52) * 3.0714,
+               np.where(np.logical_and((80 <= h), (h <= 100)), 184, 184)))))
+
+    def low_latitude_pressure(self, h):
+        """Section 2 of Recommendation ITU-R P.835-6."""
+        P10 = 284.8526   # Pressure at 10 km using the equation below
+        P72 = 0.0313660  # Pressure at 72 km using the equation below
+        return np.where(np.logical_and((0 <= h), (h <= 10)),
+                        1012.0306 - 109.0338 * h + 3.6316 * h**2,
+               np.where(np.logical_and((10 < h), (h <= 72)),
+                        P10 * np.exp(-0.147 * (h - 10)),
+               np.where(np.logical_and((72 < h), (h <= 100)),
+                    P72 * np.exp(-0.165 * (h - 72)), np.nan)))
+
+    @staticmethod
+    def low_latitude_water_vapour(h):
+        """Section 3.1 of Recommendation ITU-R P.835-6."""
+        return np.where(np.logical_and((0 <= h), (h <= 15)), 19.6542 *
+                        np.exp(- 0.2313 * h - 0.1122 * h**2 + 0.01351 * h**3 -
+                               0.0005923 * h**4), 0)
+    
+    # Mid latitude standard atmosphere functions  (Section ITU-R P.835-6 3)
+    @staticmethod
+    def mid_latitude_temperature_summer(h):
+        """Section 3.1 of Recommendation ITU-R P.835-6."""
+        return np.where(np.logical_and((0 <= h), (h < 13)),
+                        294.9838 - 5.2159 * h - 0.07109 * h**2,
+               np.where(np.logical_and((13 <= h), (h < 17)), 215.15,
+               np.where(np.logical_and((17 <= h), (h < 47)),
+                        215.15 * np.exp((h - 17) * 0.008128),
+               np.where(np.logical_and((47 <= h), (h < 53)), 275,
+               np.where(np.logical_and((53 <= h), (h < 80)),
+                        275 + 111.57755 * (1 - np.exp((h - 53) * 0.0237)),
+               np.where(np.logical_and((80 <= h), (h <= 100)),
+                        175, np.nan))))))
+
+    def mid_latitude_pressure_summer(self, h):
+        """Section 3.1 of Recommendation ITU-R P.835-6."""
+        P10 = 283.7096    # Pressure at 10 km using the equation below
+        P72 = 0.03124022  # Pressure at 72 km using the equation below
+        return np.where(
+            np.logical_and((0 <= h), (h <= 10)),
+            1012.8186 - 111.5569 * h + 3.8646 * h**2, np.where(
+                np.logical_and((10 < h), (h <= 72)),
+                P10 * np.exp(-0.147 * (h - 10)),
+                np.where(
+                    np.logical_and((72 < h), (h <= 100)),
+                    P72 * np.exp(-0.165 * (h - 72)),
+                    np.nan)))
+
+    @staticmethod
+    def mid_latitude_water_vapour_summer(h):
+        """Section 3.1 of Recommendation ITU-R P.835-6."""
+        return np.where(np.logical_and((0 <= h), (h <= 15)),
+                        14.3542 * np.exp(- 0.4174 * h - 0.02290 * h**2 +
+                                         0.001007 * h**3), 0)
+
+    @staticmethod
+    def mid_latitude_temperature_winter(h):
+        """Section 3.2 of Recommendation ITU-R P.835-6."""
+        return np.where(np.logical_and((0 <= h), (h < 10)),
+                        272.7241 - 3.6217 * h - 0.1759 * h**2,
+               np.where(np.logical_and((10 <= h), (h < 33)), 218,
+               np.where(np.logical_and((33 <= h), (h < 47)),
+                        218 + (h - 33) * 3.3571,
+               np.where(np.logical_and((47 <= h), (h < 53)), 265,
+               np.where(np.logical_and((53 <= h), (h < 80)),
+                        265 - (h - 53) * 2.0370,
+               np.where(np.logical_and((80 <= h), (h <= 100)),
+                        210, np.nan))))))
+
+    def mid_latitude_pressure_winter(self, h):
+        """Section 3.2 of Recommendation ITU-R P.835-6."""
+        P10 = 258.9787    # Pressure at 10 km using the equation below
+        P72 = 0.02851702  # Pressure at 72 km using the equation below
+        return np.where(np.logical_and((0 <= h), (h <= 10)),
+                    1018.8627 - 124.2954 * h + 4.8307 * h**2,
+               np.where(np.logical_and((10 < h), (h <= 72)),
+                        P10 * np.exp(-0.147 * (h - 10)),
+               np.where(np.logical_and((72 < h), (h <= 100)),
+                        P72 * np.exp(-0.155 * (h - 72)), np.nan)))
+
+    @staticmethod
+    def mid_latitude_water_vapour_winter(h):
+        """Section 3.2 of Recommendation ITU-R P.835-6."""
+        return np.where(np.logical_and(0 <= h, h <= 10),
+                        3.4742 * np.exp(- 0.2697 * h - 0.03604 * h**2 +
+                                        0.0004489 * h**3), 0)
+    
+    #  High latitude standard atmosphere functions  (Section ITU-R P.835-6 4)  #
+    @staticmethod
+    def high_latitude_temperature_summer(h):
+        """Section 4.1 of Recommendation ITU-R P.835-6."""
+        return np.where(np.logical_and((0 <= h), (h < 10)),
+                        286.8374 - 4.7805 * h - 0.1402 * h**2,
+               np.where(np.logical_and((10 <= h), (h < 23)), 225,
+               np.where(np.logical_and((23 <= h), (h < 48)),
+                        225 * np.exp((h - 23) * 0.008317),
+               np.where(np.logical_and((48 <= h), (h < 53)), 277,
+               np.where(np.logical_and((53 <= h), (h < 79)),
+                        277 - (h - 53) * 4.0769,
+               np.where(np.logical_and((79 <= h), (h <= 100)),
+                        171, np.nan))))))
+
+    def high_latitude_pressure_summer(self, h):
+        """Section 4.1 of Recommendation ITU-R P.835-6."""
+        P10 = 269.6138    # Pressure at 10 km using the equation below
+        P72 = 0.04582115  # Pressure at 72 km using the equation below
+        return np.where(np.logical_and((0 <= h), (h <= 10)),
+                        1008.0278 - 113.2494 * h + 3.9408 * h**2,
+               np.where(np.logical_and((10 < h), (h <= 72)),
+                        P10 * np.exp(-0.140 * (h - 10)),
+               np.where(np.logical_and((72 < h), (h <= 100)),
+                        P72 * np.exp(-0.165 * (h - 72)), np.nan)))
+
+    @staticmethod
+    def high_latitude_water_vapour_summer(h):
+        """Section 4.1 of Recommendation ITU-R P.835-6."""
+        return np.where(np.logical_and((0 <= h), (h <= 15)),
+                        8.988 * np.exp(- 0.3614 * h - 0.005402 * h**2 -
+                                       0.001955 * h**3), 0)
+
+    @staticmethod
+    def high_latitude_temperature_winter(h):
+        """Section 4.2 of Recommendation ITU-R P.835-6."""
+        return np.where(np.logical_and((0 <= h), (h < 8.5)),
+                        257.4345 + 2.3474 * h - 1.5479 * h**2 +
+                        0.08473 * h**3,
+               np.where(np.logical_and((8.5 <= h), (h < 30)), 217.5,
+               np.where(np.logical_and((30 <= h), (h < 50)),
+                        217.5 + (h - 30) * 2.125,
+               np.where(np.logical_and((50 <= h), (h < 54)), 260,
+               np.where(np.logical_and((54 <= h), (h <= 100)),
+                        260 - (h - 54) * 1.667, np.nan)))))
+
+    def high_latitude_pressure_winter(self, h):
+        """Section 4.2 of Recommendation ITU-R P.835-6."""
+        P10 = 243.8718    # Pressure at 10 km using the equation below
+        P72 = 0.02685355  # Pressure at 72 km using the equation below
+        return np.where(np.logical_and((0 <= h), (h <= 10)),
+                        1010.8828 - 122.2411 * h + 4.554 * h**2,
+               np.where(np.logical_and((10 < h), (h <= 72)),
+                        P10 * np.exp(-0.147 * (h - 10)),
+               np.where(np.logical_and((72 < h), (h <= 100)),
+                        P72 * np.exp(-0.150 * (h - 72)), np.nan)))
+
+    @staticmethod
+    def high_latitude_water_vapour_winter(h):
+        """Section 4.2 of Recommendation ITU-R P.835-6."""
+        return np.where(np.logical_and((0 <= h), (h <= 10)),
+                        1.2319 * np.exp(0.07481 * h - 0.0981 * h**2 +
+                                        0.00281 * h**3), 0)
+                                        
+    def temperature(self, lat, h, season='summer'):
+        """ Section 2 of Recommendation ITU-R P.835-6."""
+        if season == 'summer':
+            return np.where(
+                np.abs(lat) < 22, self.low_latitude_temperature(h),
+                np.where(
+                    np.abs(lat) < 45, self.mid_latitude_temperature_summer(h),
+                    self.high_latitude_temperature_summer(h)))
+        elif season == 'winter':
+            return np.where(
+                np.abs(lat) < 22, self.low_latitude_temperature(h),
+                np.where(
+                    np.abs(lat) < 45, self.mid_latitude_temperature_winter(h),
+                    self.high_latitude_temperature_winter(h)))
+        else:
+            raise ValueError("The value for argument 'season' is not correct."
+                             "Valid values are 'summer' and 'winter'.")
+
+    def pressure(self, lat, h, season='summer'):
+        """ Section 2 of Recommendation ITU-R P.835-6."""
+        if season == 'summer':
+            return np.where(
+                np.abs(lat) < 22, self.low_latitude_pressure(h),
+                np.where(
+                    np.abs(lat) < 45, self.mid_latitude_pressure_summer(h),
+                    self.high_latitude_pressure_summer(h)))
+        elif season == 'winter':
+            return np.where(
+                np.abs(lat) < 22, self.low_latitude_pressure(h),
+                np.where(
+                    np.abs(lat) < 45, self.mid_latitude_pressure_winter(h),
+                    self.high_latitude_pressure_winter(h)))
+        else:
+            raise ValueError("The value for argument 'season' is not correct."
+                             "Valid values are 'summer' and 'winter'")
+
+    def water_vapour_density(self, lat, h, season='summer'):
+        """ Section 2 of Recommendation ITU-R P.835-6."""
+        if season == 'summer':
+            return np.where(
+                np.abs(lat) < 22, self.low_latitude_water_vapour(h),
+                np.where(
+                    np.abs(lat) < 45, self.mid_latitude_water_vapour_summer(h),
+                    self.high_latitude_water_vapour_summer(h)))
+        elif season == 'winter':
+            return np.where(
+                np.abs(lat) < 22, self.low_latitude_water_vapour(h),
+                np.where(
+                    np.abs(lat) < 45, self.mid_latitude_water_vapour_winter(h),
+                    self.high_latitude_water_vapour_winter(h)))
+        else:
+            raise ValueError("The value for argument 'season' is not correct."
+                             "Valid values are 'summer' and 'winter'")
 
 
 class _ITU835_6():
