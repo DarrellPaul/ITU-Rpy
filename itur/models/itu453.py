@@ -19,10 +19,9 @@ class __ITU453__():
     "The radio refractive index: its formula and refractivity data"
 
     Available versions:
+       * P.453-14 (08/19)
        * P.453-13 (12/17)
        * P.453-12 (07/15)
-
-    TODO: Implement version P.453-13
 
     Recommendation ITU-R P.453 provides methods to estimate the radio
     refractive index and its behaviour for locations worldwide; describes both
@@ -34,8 +33,10 @@ class __ITU453__():
     # This is an abstract class that contains an instance to a version of the
     # ITU-R P.453 recommendation.
 
-    def __init__(self, version=13):
-        if version == 13:
+    def __init__(self, version=14):
+        if version == 14:
+            self.instance = _ITU453_14_()
+        elif version == 13:
             self.instance = _ITU453_13_()
         elif version == 12:
             self.instance = _ITU453_12_()
@@ -79,6 +80,141 @@ class __ITU453__():
         fcn = np.vectorize(self.instance.DN1, excluded=[0, 1],
                            otypes=[np.ndarray])
         return np.array(fcn(lat, lon, p).tolist())
+
+class _ITU453_14_():
+    def __init__(self):
+        self.__version__ = 14
+        self.year = 2019
+        self.month = 8
+        self.link = 'https://www.itu.int/rec/R-REC-P.453-14-201908-I/en'
+        
+        self._N_wet = {}
+        self._DN65 = {}
+        self._DN1 = {}
+
+    def DN65(self, lat, lon, p):
+        if not self._DN65:
+            ps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 30, 40, 50, 60, 70, 80,
+                  90, 95, 98, 99, 99.5, 99.8, 99.9]
+            d_dir = os.path.join(dataset_dir, '453/v14_dn65m_%02dd%02d_v1.npz')
+            lats = load_data(os.path.join(dataset_dir, '453/v14_lat0d75.npz'))
+            lons = load_data(os.path.join(dataset_dir, '453/v14_lon0d75.npz'))
+            for p_loads in ps:
+                int_p = p_loads // 1
+                frac_p = round((p_loads % 1.0) * 100)
+                vals = load_data(d_dir % (int_p, frac_p))
+                self._DN65[float(p_loads)] = bilinear_2D_interpolator(
+                    lats, lons, vals)
+
+        return self._DN65[float(p)](
+            np.array([lat.ravel(), lon.ravel()]).T).reshape(lat.shape)
+
+    def DN1(self, lat, lon, p):
+        if not self._DN1:
+            ps = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 30, 40, 50, 60, 70, 80,
+                  90, 95, 98, 99, 99.5, 99.8, 99.9]
+            d_dir = os.path.join(dataset_dir, '453/v14_dn_%02dd%02d_v1.npz')
+            lats = load_data(os.path.join(dataset_dir, '453/v14_lat0d75.npz'))
+            lons = load_data(os.path.join(dataset_dir, '453/v14_lon0d75.npz'))
+            for p_loads in ps:
+                int_p = p_loads // 1
+                frac_p = round((p_loads % 1.0) * 100)
+                vals = load_data(d_dir % (int_p, frac_p))
+                self._DN1[float(p_loads)] = bilinear_2D_interpolator(
+                    lats, lons, vals)
+
+        return self._DN1[float(p)](
+            np.array([lat.ravel(), lon.ravel()]).T).reshape(lat.shape)
+
+    def N_wet(self, lat, lon, p):
+        if not self._N_wet:
+            ps = [0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 20, 30, 50, 60, 70, 80,
+                  90, 95, 99]
+            d_dir = os.path.join(dataset_dir, '453/v14_nwet_annual_%s.npz')
+            lats = load_data(os.path.join(dataset_dir, '453/v14_lat_n.npz'))
+            lons = load_data(os.path.join(dataset_dir, '453/v14_lon_n.npz'))
+            for p_loads in ps:
+                vals = load_data(d_dir % (str(p_loads).replace('.', '')))
+                self._N_wet[float(p_loads)] = bilinear_2D_interpolator(
+                    np.flipud(lats), lons, np.flipud(vals))
+
+        lon[lon > 180] = lon[lon > 180] - 360
+        return self._N_wet[float(p)](
+            np.array([lat.ravel(), lon.ravel()]).T).reshape(lat.shape)
+
+    def map_wet_term_radio_refractivity(self, lat, lon, p):
+        lon[lon > 180] = lon[lon > 180] - 360
+
+        lat_f = lat.flatten()
+        lon_f = lon.flatten()
+
+        available_p = np.array([0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10,
+                                20, 30, 50, 60, 70, 80, 90, 95, 99])
+
+        if p in available_p:
+            p_below = p_above = p
+            pExact = True
+        else:
+            pExact = False
+            idx = available_p.searchsorted(p, side='right') - 1
+            idx = np.clip(idx, 0, len(available_p) - 1)
+
+            p_below = available_p[idx]
+            idx = np.clip(idx + 1, 0, len(available_p) - 1)
+            p_above = available_p[idx]
+
+        R = -(lat_f - 90) // 0.75
+        C = (lon_f + 180) // 0.75
+
+        lats = np.array([90 - R * 0.75, 90 - (R + 1) * 0.75,
+                         90 - R * 0.75, 90 - (R + 1) * 0.75])
+
+        lons = np.array([C * 0.75, C * 0.75,
+                         (C + 1) * 0.75, (C + 1) * 0.75]) - 180
+
+        r = - (lat_f - 90) / 0.75
+        c = (lon_f + 180) / 0.75
+
+        N_wet_a = self.N_wet(lats, lons, p_above)
+        N_wet_a = (N_wet_a[0, :] * ((R + 1 - r) * (C + 1 - c)) +
+                   N_wet_a[1, :] * ((r - R) * (C + 1 - c)) +
+                   N_wet_a[2, :] * ((R + 1 - r) * (c - C)) +
+                   N_wet_a[3, :] * ((r - R) * (c - C)))
+
+        if not pExact:
+            N_wet_b = self.N_wet(lats, lons, p_below)
+            N_wet_b = (N_wet_b[0, :] * ((R + 1 - r) * (C + 1 - c)) +
+                       N_wet_b[1, :] * ((r - R) * (C + 1 - c)) +
+                       N_wet_b[2, :] * ((R + 1 - r) * (c - C)) +
+                       N_wet_b[3, :] * ((r - R) * (c - C)))
+
+        if not pExact:
+            rho = N_wet_b + (N_wet_a - N_wet_b) * \
+                (np.log(p) - np.log(p_below)) / \
+                (np.log(p_above) - np.log(p_below))
+            return rho.reshape(lat.shape)
+        else:
+            return N_wet_a.reshape(lat.shape)
+
+    @classmethod
+    def wet_term_radio_refractivity(self, e, T):
+        return _ITU453_13_.wet_term_radio_refractivity(e, T)
+
+    @classmethod
+    def dry_term_radio_refractivity(self, Pd, T):
+        return _ITU453_13_.dry_term_radio_refractivity(Pd, T)
+
+    @classmethod
+    def radio_refractive_index(self, Pd, e, T):
+        return _ITU453_13_.radio_refractive_index(Pd, e, T)
+
+    @classmethod
+    def water_vapour_pressure(self, T, P, H, type_hydrometeor='water'):
+        return _ITU453_13_.water_vapour_pressure(T, P, H, type_hydrometeor)
+
+    @classmethod
+    def saturation_vapour_pressure(self, T, P, type_hydrometeor='water'):
+        return _ITU453_13_.saturation_vapour_pressure(T, P, type_hydrometeor)
 
 
 class _ITU453_13_():
@@ -552,6 +688,11 @@ def DN65(lat, lon, p):
     """Determine the statistics of the vertical gradient of radio
        refractivity in the lower 65 m from the surface of the Earth.
 
+       Notes:
+       For ITU-R P.453-14 and later, this value is the gradient 
+       **not exceeded for p%** of the time. For earlier versions, 
+       it was described as **exceeded for p%**.
+
     Parameters
     ----------
     lat : number, sequence, or numpy.ndarray
@@ -603,6 +744,17 @@ def DN1(lat, lon, p):
     DN1_p: Quantity
         Vertical gradient of radio refractivity over a 1 km layer from the
         surface exceeded for p% of the average year
+
+    Notes
+    -----
+    - In **ITU-R P.453-13 and earlier**, this value represents the gradient
+      **exceeded for p%** of an average year (i.e., the gradient is steeper
+      than this value for p% of the time).
+    - In **ITU-R P.453-14 and later**, this value is the gradient **not
+      exceeded for p%** of an average year (i.e., the gradient is shallower
+      than this value for p% of the time).
+    - Users should take this into account when comparing statistics across
+      versions or using these values in link budget or interference analyses.
 
     References
     ----------

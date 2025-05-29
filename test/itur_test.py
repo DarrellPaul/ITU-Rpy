@@ -407,7 +407,7 @@ class TestIturUtils(test.TestCase):
 
 class TestFunctionsRecommendation453(test.TestCase):
     def setUp(self):
-        self.versions = [12, 13]
+        self.versions = [12, 13, 14]
 
     @staticmethod
     def test_all_functions_453():
@@ -913,7 +913,7 @@ class TestFunctionsRecommendation839(test.TestCase):
 
 class TestFunctionsRecommendation840(test.TestCase):
     def setUp(self):
-        self.versions = [4, 5, 6, 7, 8]
+        self.versions = [4, 5, 6, 7, 8, 9]
 
     @staticmethod
     def test_all_functions_840():

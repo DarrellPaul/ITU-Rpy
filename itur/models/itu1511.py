@@ -96,6 +96,7 @@ class _ITU1511_3_():
         """
         lon_d = np.where(lon_d > 180, lon_d - 360, lon_d)
         return self.altitude(lat_d, lon_d) / 1000
+    
 class _ITU1511_2_():
     """
     The values of topographical height (km) above mean sea level of the surface
