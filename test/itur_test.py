@@ -529,7 +529,7 @@ class TestFunctionsRecommendation530(test.TestCase):
 
 class TestFunctionsRecommendation618(test.TestCase):
     def setUp(self):
-        self.versions = [12, 13]
+        self.versions = [12, 13, 14]
 
     @staticmethod
     def test_all_functions_618():
