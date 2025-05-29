@@ -7,6 +7,7 @@ import os
 
 import numpy as np
 from astropy import units as u
+from scipy.stats import norm
 
 from itur.models.itu1144 import bilinear_2D_interpolator
 from itur.utils import (dataset_dir, prepare_input_array, prepare_output_array,
@@ -61,8 +62,10 @@ class __ITU840__():
     # This is an abstract class that contains an instance to a version of the
     # ITU-R P.840 recommendation.
 
-    def __init__(self, version=7):
-        if version == 8:
+    def __init__(self, version=9):
+        if version == 9:
+            self.instance = _ITU840_9_()
+        elif version == 8:
             self.instance = _ITU840_8_()
         elif version == 7:
             self.instance = _ITU840_7_()
@@ -93,18 +96,148 @@ class __ITU840__():
         return np.array(fcn(self.instance.Lred, lat, lon, p).tolist())
 
     def cloud_attenuation(self, lat, lon, el, f, p, Lred=None):
-        # Abstract method to compute the cloud attenuation
-        Kl = self.specific_attenuation_coefficients(f, T=0)
-        if Lred is None:
-            Lred = self.columnar_content_reduced_liquid(lat, lon, p)
-        A = Lred * Kl / np.sin(np.deg2rad(el))
+        version = self.__version__
+        if version >= 9:
+            # Version 9 uses L(p) or L value directly.
+            # reinterpret "Lred" input as L (kg/m^2)
+            L_val = Lred
+            return self.instance.cloud_attenuation(lat, lon, el, f, p, L_val)
+        
+        else:
+            # older versions use Lred and Kl(f) without empirical correction
+            Kl = self.specific_attenuation_coefficients(f, T=0)
+            # Abstract method to compute the cloud attenuation
+            Kl = self.specific_attenuation_coefficients(f, T=0)
+            if Lred is None:
+                Lred = self.columnar_content_reduced_liquid(lat, lon, p)
+            A = Lred * Kl / np.sin(np.deg2rad(el))
 
-        return A
+            return A
 
     def lognormal_approximation_coefficient(self, lat, lon):
         # Abstract method to compute the lognormal approximation coefficients
         return self.instance.lognormal_approximation_coefficient(lat, lon)
 
+
+class _ITU840_9_():
+    def __init__(self):
+        self.__version__ = 8
+        self.year = 2023
+        self.month = 12
+        self.link = 'https://www.itu.int/rec/R-REC-P.840-9-202308-I/en'
+
+        self._L = {}
+        self._m = None
+        self._sigma = None
+        self._Pclw = None
+    
+    def log_interp_Lred(f_dict, lat, lon, p):
+        available_p = np.array(sorted(f_dict.keys()))
+
+        if p in available_p:
+            return f_dict[p](np.array([lat.ravel(), lon.ravel()]).T).reshape(lat.shape)
+
+        idx = np.searchsorted(available_p, p, side='right') - 1
+        idx = np.clip(idx, 0, len(available_p) - 2)
+
+        p_low, p_high = available_p[idx], available_p[idx + 1]
+        logp = np.log10(p)
+        logp_low, logp_high = np.log10(p_low), np.log10(p_high)
+
+        L_low = f_dict[p_low](np.array([lat.ravel(), lon.ravel()]).T).reshape(lat.shape)
+        L_high = f_dict[p_high](np.array([lat.ravel(), lon.ravel()]).T).reshape(lat.shape)
+
+        L_interp = L_low + (L_high - L_low) * (logp - logp_low) / (logp_high - logp_low)
+        return L_interp
+        
+    def L(self, lat: np.ndarray, lon: np.ndarray, p: float) -> np.ndarray:
+        """Compute the total columnar content of cloud liquid water.
+
+        Parameters
+        ----------
+        lat : np.ndarray
+            Latitudes of the receiver points
+        lon : np.ndarray
+            Longitudes of the receiver points
+        p : float
+            Percentage of time exceeded for p% of the average year
+
+        Returns
+        -------
+        np.ndarray
+            Total columnar content of cloud liquid water (kg/m2)
+        """
+        if not self._L:
+            ps = [0.1, 0.2, 0.3, 0.5, 1, 2, 3, 5, 10, 20, 30,
+                  50, 60, 70, 80, 90, 95, 99]
+            
+            lats = np.linspace(-90, 90, int(180 / 0.25) + 1)
+            lons = np.linspace(-180, 180, int(360 / 0.25) + 1)
+            for p_load in ps:
+                filename = os.path.join(
+                    dataset_dir, 
+                    f'840/v9_L_{str(p_load).replace(".", "")}.npz'
+                )
+                data = np.load(filename)['arr_0']
+                self._L[float(p_load)] = bilinear_2D_interpolator(
+                    lats, lons, data
+                )
+
+        return self.log_interp_Lred(self._L, lat, lon, p)
+    
+    def M(self, lat, lon):
+        
+        if self._m is None:
+            lats = np.linspace(-90, 90, int(180 / 0.25) + 1)
+            lons = np.linspace(-180, 180, int(360 / 0.25) + 1)
+            self._m = bilinear_2D_interpolator(
+                lats, lons, np.load(os.path.join(dataset_dir, '840/v9_mL.npz'))['arr_0']
+            )
+        return self._m(np.array([lat.ravel(), lon.ravel()]).T).reshape(lat.shape)
+    
+    def sigma(self, lat, lon):
+        if self._Pclw is None:
+            lats = np.linspace(-90, 90, int(180 / 0.25) + 1)
+            lons = np.linspace(-180, 180, int(360 / 0.25) + 1)
+            self._Pclw = bilinear_2D_interpolator(
+                lats, lons, np.load(os.path.join(dataset_dir, '840/v9_PL.npz'))['arr_0']
+            )
+        return self._Pclw(np.array([lat.ravel(), lon.ravel()]).T).reshape(lat.shape)
+
+    @staticmethod
+    def specific_attenuation_coefficients(f, T):
+        """
+        """
+        return _ITU840_6_.specific_attenuation_coefficients(f, T)
+    
+    def cloud_attenuation(self, lat, lon, el, f, p, L=None):
+        if L is None:
+            L = self.L(lat, lon, p)
+        
+        Kl = self.specific_attenuation_coefficients(f, T=0)
+        A = L * Kl / np.sin(np.deg2rad(el))
+        return A
+
+    def lognormal_approximation_coefficient(self, lat, lon):
+        m = self.M(lat, lon)
+        sigma = self.sigma(lat, lon)
+        Pclw = self.Pclw(lat, lon)
+        return m, sigma, Pclw
+
+    def cloud_attenuation_lognormal(self, lat, lon, el, f, p):
+        m = self.M(lat, lon)
+        sigma = self.sigma(lat, lon)
+        Pclw = self.Pclw(lat, lon)
+
+        mask = (p < Pclw)
+        Qinv = norm.isf(p / Pclw)
+        L = np.exp(m + sigma * Qinv)
+
+        Kl = self.specific_attenuation_coefficients(f, T=0)
+        A = L * Kl / np.sin(np.deg2rad(el))
+
+        A[~mask] = 0  # Set to zero where p >= Pclw
+        return A
 
 class _ITU840_8_():
 
